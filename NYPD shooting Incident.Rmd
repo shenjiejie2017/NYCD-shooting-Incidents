@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## File and data 
 
-This is an R Markdown document for **NYPD shooting Incidents project**. To access the files for the project in this module, go to <https://catalog.data.gov/dataset> and find the dataset titled *NYPD Shooting Incident Data (Historic)*. The data link address is <https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD>. The data has a list of every shooting incident that occurred in NYC going back to **2006** through the end of the previous calendar year.
+This is a R Markdown document for **NYPD shooting Incidents project**. To access the files for the project in this module, go to <https://catalog.data.gov/dataset> and find the dataset titled *NYPD Shooting Incident Data (Historic)*. The data link address is <https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD>. The data has a list of every shooting incident that occurred in NYC going back to **2006** through the end of the previous calendar year. At the time of this project, it's 1/1/2016 to 12/31/2022.
 
 ## Project goal  
 
@@ -103,7 +103,7 @@ df<-df%>%left_join(shootings_in_arrest)
 ```
 
 ## Parse data and add some date type columns
-From initial data check above, OCCUR_DATE is a character instead of a date. I want to change it. Also, I want to add a few more date objects such as year, month, day of week. 
+From initial data check above, OCCUR_DATE is a character instead of a date. I want to change it. Also, I want to add a few more date variables such as year, month, day of week. 
 
 ```{r parse data}
 # Convert "OCCUR_DATE" to date format, and create year, month, day of week columns. I want to change year, month, day of week to factor types so they can show up in order in my later plots.
@@ -125,15 +125,15 @@ glimpse(df)
 ```
 
 ## Discrete, continuous, and date/time columns
-Before diving into data further, I want to seperate columns to discrete, continous, and date/time columns. The reason is that I will do visulizations, fill missing values differently according to type of data.
+Before diving into data further, I want to separate columns to discrete, continuous, and date/time types. The reason is that I will do visualizations, fill missing values differently according to type of data.
 
 ```{r separate data types}
-# seperate discrete and continuous columns
+# Separate discrete and continuous columns
 col_dis<-     colnames(select( df,where(is.character)| where(is.logical))) %>% setdiff("Lon_Lat")
 col_con<-     colnames(select(df,where(is.numeric) ))
 col_datetime <-c( colnames(select(df,where(is.Date) |  where(is.factor))), "OCCUR_TIME")
 
-# take a look at columns
+# Take a look at columns
 cat("col_dis: ", col_dis,"\n")
 cat("col_con: ", col_con,"\n")
 cat("col_datetime: ", col_datetime,"\n")
@@ -175,9 +175,9 @@ plot + geom_bar(mapping=aes(x=STATISTICAL_MURDER_FLAG)) + theme(axis.text= eleme
 
 Now let's fill in missing values for discrete variables.
 
-For LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, and LOCATION_DESC, since there are so many of them with missing values but only a few records has missing latitude and Longitude,I think the reason the data is missing is because it's hard to fit them to any categories (instead of unknown location). I fill them with "OTHER".
+For LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, and LOCATION_DESC, since there are so many of them with missing values but only a few records has missing latitude and Longitude, I think the reason the data is missing is because it's hard to fit them to any categories (instead of unknown location). I fill them with "OTHER".
 
-For PERP_AGE_GROUP, PERP_SEX, PERP_RACE, it seems it's more reasonable to put thme as "UNKOWN".
+For PERP_AGE_GROUP, PERP_SEX, PERP_RACE, it seems it's more reasonable to put them as "UNKOWN".
 
 For JURISDICTION_CODE, there are only two records have missing values. I just fill them with "UNKNOWN" as well.
 
@@ -193,13 +193,13 @@ df<-df%>%
   replace_na(list(JURISDICTION_CODE="UNKNOWN"))
 ```
 
-Also, there are some typos in PERP_AGE_GROUP, and VIC_AGE_GROUP
+Also, there are some typos in PERP_AGE_GROUP, and VIC_AGE_GROUP. I want to fix them.
 ```{r fix discrete typos}
 df$PERP_AGE_GROUP<-ifelse(df$PERP_AGE_GROUP=="1020"|df$PERP_AGE_GROUP=="224"|df$PERP_AGE_GROUP=="940","UNKNOWN",df$PERP_AGE_GROUP)
 df$VIC_AGE_GROUP<-ifelse(df$VIC_AGE_GROUP=="1022","UNKNOWN",df$VIC_AGE_GROUP)
 ```
 ### For continuous variables
-There are only 10 shootings missing latitude and Longitude. Let's take a look
+There are only 10 shootings missing latitude and Longitude. Let's take a look.
 ```{r records with missing continuous variables}
 df%>%filter(is.na(Latitude)| is.na(Longitude))%>%
   select( INCIDENT_KEY, OCCUR_DATE, BORO,X_COORD_CD,Y_COORD_CD, everything() )
@@ -229,7 +229,7 @@ plot+geom_bar(mapping=aes(LOC_CLASSFCTN_DESC)) + theme(axis.text=element_text(si
 plot+geom_bar(mapping=aes(LOCATION_DESC))  + theme(axis.text=element_text(size=rel(1), angle=90))
 plot+geom_bar(mapping=aes(JURISDICTION_CODE))  + theme(axis.text=element_text(size=rel(1), angle=90))
 ```
-I use different color for JURISDICTION_CODE. (0: Patrol, 1: Transit, 2: Housing per website "https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Year-To-Date-/5ucz-vwe8/data".) From the plots, we can see where shootings are mostly likely to happen. For example, lots of shooting happen in Brooklyn and Bronx area.Shootings are more likely to happen in patrol and transit.
+I use different color for JURISDICTION_CODE. (0: Patrol, 1: Transit, 2: Housing per website "https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Year-To-Date-/5ucz-vwe8/data".) From the plots, we can see where shootings are mostly likely to happen. For example, lots of shootings happen in Brooklyn and Bronx area. Shootings are more likely to happen in patrol and transit.
 
 A map below with longitude and latitude can help us to see shooting distribution geographically better.
 ```{r map, fig.width=20, fig.height=20}
@@ -237,6 +237,7 @@ plot = ggplot(data=df, mapping=aes(color= JURISDICTION_CODE,alpha=0.2))
 
 plot+  geom_point(mapping=aes(x=Longitude, y=Latitude)) 
 ```
+
 ### Who are the shooters and victoms?
 Next, let's look at some shooter and victim distributions
 ```{r shooters and victoms, fig.width=15, fig.height=6}
@@ -252,7 +253,7 @@ ggplot_df + geom_bar(mapping=aes(x=VIC_RACE)) + theme(axis.text= element_text(si
 It seems most shooters are from 18-24 age groups, the next is 25-44. This makes me think if this can relate to the time of shootings as well. Because those young people might be more active at certain months, days of week, and times.
 
 ### When are the most incidents?
-Lastly, let's look at which year, month, day of week, time of day are the most incidents. I noticed there are lots on unknown shooter's information while very few are missing victim information. My guess is those are incidents that shooters haven't caught.
+Lastly, let's look at which year, month, day of week, time of day are the most incidents. 
 
 
 ```{r datetime distribution,fig.width=25, fig.height=6}
@@ -264,7 +265,7 @@ ggplot_df + geom_bar(mapping=aes(x= DAY_OF_WEEK ))   + theme(axis.text= element_
 ggplot_df + geom_histogram(mapping=aes(x=OCCUR_TIME ))   + theme(axis.text= element_text(size=rel(1.5)), legend.text= element_text(size=rel(2)) )
 
 ```
-It seems shootings decreased in 2017 to 2019. But then after covid, shootings are almost doubled. Also, the % of age 25-44 shooters increased on and after 2020. I think that could because the job market were still recovering. 
+It seems shootings decreased in 2017 to 2019. But then after the Covid, shootings are almost doubled. Also, the % of age 25-44 shooters increased on and after 2020. I think that could because the job market were still recovering. 
 
 I can see Saturday and Sunday has the most shootings, and the most shooting occur after dinner time until next morning. I am not surprised to see this pattern. Unfortunately, this would require lots of police night and weekend shifts.
 
@@ -292,6 +293,6 @@ plot+
 ```
 
 ## Bias
-There are many sources of bias when we can data science projects.
+There are many sources of bias when we do data science projects.
 
-For this project, I think the data is limited. There are only 21 variables and I don't know how the data was collected. There are so many missing or null values. What are the causes of those missing values? How data were collected? For example, there are many shootings with null or missing LOC_OF_OCCUR_DESC. Do they mean the location unknown or not defined? Also, I can see shootings happen in the middle of year mostly. This might not be true for all years. 
+For this project, I think the data is limited. There are only 21 variables and I don't know how the data was collected. There are so many missing and null values. What are the causes of those missing values? How were data collected? For example, there are many shootings with null or missing LOC_OF_OCCUR_DESC. Do they mean the location unknown or cannot defined? Also, I can see shootings happen in the middle of year mostly but I didn't check this for all years. This might not be true for some years. 
