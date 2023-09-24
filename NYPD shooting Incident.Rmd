@@ -1,0 +1,297 @@
+---
+title: "NYPD Shooting Incidents Project Rmd"
+author: "Jie Shen"
+date: "2023-09-22"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## File and data 
+
+This is an R Markdown document for **NYPD shooting Incidents project**. To access the files for the project in this module, go to <https://catalog.data.gov/dataset> and find the dataset titled *NYPD Shooting Incident Data (Historic)*. The data link address is <https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD>. The data has a list of every shooting incident that occurred in NYC going back to **2006** through the end of the previous calendar year.
+
+## Project goal  
+
+The project is to discover patterns and trends of shooting incidents in NY. For example, are there time of day, days of week, or months of year that has more incidents? Were there any improvement of NY shooting incidents over the past few years? Where are some high risk areas?
+
+## Packages needed
+Be sure the following packages are installed first:  
+
+* tidyverse
+* ggplot2
+* lubridate
+* hms
+
+
+
+## Load packages
+```{r load packages, message=FALSE}
+library(lubridate)
+library(tidyverse)
+library(ggplot2)
+library(forcats)
+library(hms)
+```
+
+## Download and import data
+First let's download the file to the data folder inside project folder. I want to show the download date too. 
+```{r Download and import data}
+# Create "Data" folder inside the project folder to save data files
+if(!file.exists("Data")){dir.create("Data")}
+
+# Download file and show download date
+fileurl="https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+download.file(fileurl, destfile="Data/NYPD.csv")
+(downloaded<-date()) #date of download
+
+```
+
+Now let's import the data and take some quick looks
+
+```{r import data and quick look}
+# Import data to tibble format
+df=read_csv("Data/NYPD.csv")
+
+# Quick views
+head(df)
+
+# Take a look at the transposed data so we can see all columns
+glimpse(df)
+```
+
+## Check if INCIDENT_KEY is the primary key
+INCIDENT_KEY seems like a **primary key**. But **is it**?
+
+
+```{r check incident_key}
+## Check if there are any dup INCIDENT_KEY records
+df%>%count(INCIDENT_KEY) %>%
+  filter(n>1)
+
+# Create a data frame for duplicated records
+dup<-df %>%
+  group_by(INCIDENT_KEY) %>%
+    summarise(count=n()) %>%
+    filter( count>1)
+  
+# Join "dup" data frame to main df. Then take a look at the record with the most duplicated INCIDENT_KEY.
+df%>%
+   right_join(dup)%>%
+   arrange(INCIDENT_KEY) %>%
+   slice_max(count) %>%
+   select(count, INCIDENT_KEY, OCCUR_DATE, OCCUR_TIME, BORO, Latitude, Longitude, everything())
+```
+  
+It seems INCIDENT_KEY is **NOT** a **primary key**. From the website "https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Year-To-Date-/5ucz-vwe8/data", there will be one INCIDENT_KEY for each arrest. From the above 18 records with the INCIDENT_KEY 173354054, the shootings occurred at the same time and location. So, they are indeed the shootings from the same incident arrested together.
+
+How many arrests with 1 shooting, 2 shootings, etc? Let's take a look.
+
+```{r distribution of arrest counts type }
+# Check counts of arrest
+shootings_in_arrest<-df %>% group_by(INCIDENT_KEY) %>%
+  summarise(num_of_shooting_in_arrest=n())
+
+shootings_in_arrest%>%group_by(num_of_shooting_in_arrest) %>%summarise(count=n())
+
+# Add num_of_shooting_in_arrest column to df
+df<-df%>%left_join(shootings_in_arrest)
+```
+
+## Parse data and add some date type columns
+From initial data check above, OCCUR_DATE is a character instead of a date. I want to change it. Also, I want to add a few more date objects such as year, month, day of week. 
+
+```{r parse data}
+# Convert "OCCUR_DATE" to date format, and create year, month, day of week columns. I want to change year, month, day of week to factor types so they can show up in order in my later plots.
+month_level=c("1","2","3","4","5","6","7","8","9","10","11","12")
+month_order <- c("January", "February", "March", "April", "May", "June",
+                  "July", "August", "September", "October", "November", "December")
+day_level=c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+df<-df%>%
+  mutate(OCCUR_DATE = parse_date(OCCUR_DATE, format = "%m/%d/%Y")) %>%
+  mutate(YEAR=factor(year(OCCUR_DATE)),
+        MONTH= factor( month(OCCUR_DATE), levels = 1:12, labels = month_order),
+        YEAR_MONTH=as.Date(paste(format(OCCUR_DATE, format="%Y-%m"),"01",sep="-")),
+        DAY_OF_WEEK = factor( format(OCCUR_DATE,format="%A"), levels=day_level),
+        JURISDICTION_CODE= as.character(JURISDICTION_CODE)) %>%
+  relocate(c(YEAR, MONTH,YEAR_MONTH,  DAY_OF_WEEK ), .before= BORO)
+# Take a look at columns
+glimpse(df)
+
+```
+
+## Discrete, continuous, and date/time columns
+Before diving into data further, I want to seperate columns to discrete, continous, and date/time columns. The reason is that I will do visulizations, fill missing values differently according to type of data.
+
+```{r separate data types}
+# seperate discrete and continuous columns
+col_dis<-     colnames(select( df,where(is.character)| where(is.logical))) %>% setdiff("Lon_Lat")
+col_con<-     colnames(select(df,where(is.numeric) ))
+col_datetime <-c( colnames(select(df,where(is.Date) |  where(is.factor))), "OCCUR_TIME")
+
+# take a look at columns
+cat("col_dis: ", col_dis,"\n")
+cat("col_con: ", col_con,"\n")
+cat("col_datetime: ", col_datetime,"\n")
+```
+
+
+## Missing data checking
+First take a look at how many missing data each columns have (if any)
+```{r check missing data}
+# For discrete variables
+as.data.frame(colSums(df[col_dis]%>%is.na()))
+# For continuous variables
+as.data.frame(colSums(df[col_con]%>%is.na()))
+# For datetime variables
+as.data.frame(colSums(df[col_datetime]%>%is.na()))
+```
+
+## Fill in missing data
+
+### For discrete variables
+First I want to draw some bar plots to have a feel of the data
+```{r plot bar charts}
+# Create bar plots for each character variable 
+plot = ggplot(data=df) 
+plot + geom_bar(mapping=aes(x=BORO)) 
+plot + geom_bar(mapping=aes(x=LOC_OF_OCCUR_DESC)) 
+plot + geom_bar(mapping=aes(x=LOC_CLASSFCTN_DESC))  + theme(axis.text= element_text(size=rel(0.7), angle=90))
+plot + geom_bar(mapping=aes(x=LOCATION_DESC)) + theme(axis.text= element_text(size=rel(0.7), angle=90))
+plot + geom_bar(mapping=aes(x=PERP_AGE_GROUP))
+plot + geom_bar(mapping=aes(x=PERP_SEX))
+plot + geom_bar(mapping=aes(x=PERP_RACE)) + theme(axis.text= element_text(size=rel(0.7), angle=90))
+plot + geom_bar(mapping=aes(x=JURISDICTION_CODE)) 
+plot + geom_bar(mapping=aes(x=VIC_AGE_GROUP)) 
+plot + geom_bar(mapping=aes(x=VIC_SEX))
+plot + geom_bar(mapping=aes(x=VIC_RACE)) + theme(axis.text= element_text(size=rel(0.7), angle=90))
+plot + geom_bar(mapping=aes(x=STATISTICAL_MURDER_FLAG)) + theme(axis.text= element_text(size=rel(0.7), angle=90))
+
+```
+
+Now let's fill in missing values for discrete variables.
+
+For LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, and LOCATION_DESC, since there are so many of them with missing values but only a few records has missing latitude and Longitude,I think the reason the data is missing is because it's hard to fit them to any categories (instead of unknown location). I fill them with "OTHER".
+
+For PERP_AGE_GROUP, PERP_SEX, PERP_RACE, it seems it's more reasonable to put thme as "UNKOWN".
+
+For JURISDICTION_CODE, there are only two records have missing values. I just fill them with "UNKNOWN" as well.
+
+```{r fill in na for discrete features, results='hide'}
+# Fill in missing values for discrete variables
+df<-df%>%
+  replace_na(list(LOC_OF_OCCUR_DESC="OTHER")) %>%
+  replace_na(list(LOC_CLASSFCTN_DESC="OTHER")) %>%
+  replace_na(list(LOCATION_DESC="OTHER")) %>%
+  replace_na(list(PERP_AGE_GROUP="UNKNOWN")) %>%
+  replace_na(list(PERP_SEX="U")) %>%
+  replace_na(list(PERP_RACE="UNKNOWN")) %>%
+  replace_na(list(JURISDICTION_CODE="UNKNOWN"))
+```
+
+Also, there are some typos in PERP_AGE_GROUP, and VIC_AGE_GROUP
+```{r fix discrete typos}
+df$PERP_AGE_GROUP<-ifelse(df$PERP_AGE_GROUP=="1020"|df$PERP_AGE_GROUP=="224"|df$PERP_AGE_GROUP=="940","UNKNOWN",df$PERP_AGE_GROUP)
+df$VIC_AGE_GROUP<-ifelse(df$VIC_AGE_GROUP=="1022","UNKNOWN",df$VIC_AGE_GROUP)
+```
+### For continuous variables
+There are only 10 shootings missing latitude and Longitude. Let's take a look
+```{r records with missing continuous variables}
+df%>%filter(is.na(Latitude)| is.na(Longitude))%>%
+  select( INCIDENT_KEY, OCCUR_DATE, BORO,X_COORD_CD,Y_COORD_CD, everything() )
+```
+Since they aren't many, I will just exclude those 10 rows.
+
+```{r exclude missing value rows}
+# Exclude records with missing Latitude or Longitude
+df<-df%>%filter(!is.na(Latitude) & !is.na(Longitude))
+
+# Check if there are any missing values left
+sum(is.na(df))
+
+# Take a look at summary statistics
+summary(df)
+```
+
+
+## Analysis and insights
+### Where are the most incidents?
+First, I want to see shooting location distributions
+```{r location distribution, fig.width=15, fig.height=6}
+plot = ggplot(data = df,mapping=aes(fill= JURISDICTION_CODE))
+plot+geom_bar(mapping=aes(BORO)) + theme(axis.text=element_text(size=rel(1)))
+plot+geom_bar(mapping=aes(LOC_OF_OCCUR_DESC)) + theme(axis.text=element_text(size=rel(1)))
+plot+geom_bar(mapping=aes(LOC_CLASSFCTN_DESC)) + theme(axis.text=element_text(size=rel(1), angle=90))
+plot+geom_bar(mapping=aes(LOCATION_DESC))  + theme(axis.text=element_text(size=rel(1), angle=90))
+plot+geom_bar(mapping=aes(JURISDICTION_CODE))  + theme(axis.text=element_text(size=rel(1), angle=90))
+```
+I use different color for JURISDICTION_CODE. (0: Patrol, 1: Transit, 2: Housing per website "https://data.cityofnewyork.us/Public-Safety/NYPD-Shooting-Incident-Data-Year-To-Date-/5ucz-vwe8/data".) From the plots, we can see where shootings are mostly likely to happen. For example, lots of shooting happen in Brooklyn and Bronx area.Shootings are more likely to happen in patrol and transit.
+
+A map below with longitude and latitude can help us to see shooting distribution geographically better.
+```{r map, fig.width=20, fig.height=20}
+plot = ggplot(data=df, mapping=aes(color= JURISDICTION_CODE,alpha=0.2)) 
+
+plot+  geom_point(mapping=aes(x=Longitude, y=Latitude)) 
+```
+### Who are the shooters and victoms?
+Next, let's look at some shooter and victim distributions
+```{r shooters and victoms, fig.width=15, fig.height=6}
+ggplot_df = ggplot(data = df, mapping=aes(fill=STATISTICAL_MURDER_FLAG) )
+ggplot_df + geom_bar(mapping=aes(x=PERP_AGE_GROUP))
+ggplot_df + geom_bar(mapping=aes(x=VIC_AGE_GROUP))
+ggplot_df + geom_bar(mapping=aes(x=PERP_SEX))
+ggplot_df + geom_bar(mapping=aes(x=VIC_SEX))
+ggplot_df + geom_bar(mapping=aes(x=PERP_RACE)) + theme(axis.text= element_text(size=rel(0.7),  angle=90))
+ggplot_df + geom_bar(mapping=aes(x=VIC_RACE)) + theme(axis.text= element_text(size=rel(0.7), angle=90))
+```
+
+It seems most shooters are from 18-24 age groups, the next is 25-44. This makes me think if this can relate to the time of shootings as well. Because those young people might be more active at certain months, days of week, and times.
+
+### When are the most incidents?
+Lastly, let's look at which year, month, day of week, time of day are the most incidents. I noticed there are lots on unknown shooter's information while very few are missing victim information. My guess is those are incidents that shooters haven't caught.
+
+
+```{r datetime distribution,fig.width=25, fig.height=6}
+ggplot_df = ggplot(data = df, mapping=aes(fill=PERP_AGE_GROUP) )
+
+ggplot_df + geom_bar(mapping=aes(x=YEAR  ))  + theme(axis.text= element_text(size=rel(1.5)), legend.text= element_text(size=rel(2)) )
+ggplot_df + geom_bar(mapping=aes(x=MONTH ))   + theme(axis.text= element_text(size=rel(1.5)), legend.text= element_text(size=rel(2)) )
+ggplot_df + geom_bar(mapping=aes(x= DAY_OF_WEEK ))   + theme(axis.text= element_text(size=rel(1.5)), legend.text= element_text(size=rel(2)) )
+ggplot_df + geom_histogram(mapping=aes(x=OCCUR_TIME ))   + theme(axis.text= element_text(size=rel(1.5)), legend.text= element_text(size=rel(2)) )
+
+```
+It seems shootings decreased in 2017 to 2019. But then after covid, shootings are almost doubled. Also, the % of age 25-44 shooters increased on and after 2020. I think that could because the job market were still recovering. 
+
+I can see Saturday and Sunday has the most shootings, and the most shooting occur after dinner time until next morning. I am not surprised to see this pattern. Unfortunately, this would require lots of police night and weekend shifts.
+
+It's interesting to see that the most shooting occur during the middle of the year (May to September) especially July to August. Maybe that's because young people are more active during summer time? Maybe because of the summer breaks?
+
+
+## Modeling data
+Let's just build a very simple linear regression and see how it does.
+```{r modeling, fig.width=25, fig.height=6}
+# Aggregate shootings per year and month 
+df_agg<-df%>%group_by(YEAR,MONTH, YEAR_MONTH) %>%
+         summarise(n=n()) %>%
+         ungroup()
+
+# Build an linear regression model
+mod<-lm(n~MONTH+YEAR, data=df_agg)
+summary(mod)
+df_with_pred<-df_agg%>%mutate(pred = predict(mod))
+
+# Draw plots of actual values vs. predicted values
+plot= ggplot(data = df_with_pred) 
+plot+
+   geom_point(aes(x=YEAR_MONTH,y=n), color="blue")+
+   geom_point(aes(x=YEAR_MONTH, y=pred), color="red")
+```
+
+## Bias
+There are many sources of bias when we can data science projects.
+
+For this project, I think the data is limited. There are only 21 variables and I don't know how the data was collected. There are so many missing or null values. What are the causes of those missing values? How data were collected? For example, there are many shootings with null or missing LOC_OF_OCCUR_DESC. Do they mean the location unknown or not defined? Also, I can see shootings happen in the middle of year mostly. This might not be true for all years. 
