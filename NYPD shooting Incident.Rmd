@@ -34,7 +34,6 @@ Be sure the following packages are installed first:
 library(lubridate)
 library(tidyverse)
 library(ggplot2)
-library(forcats)
 library(hms)
 ```
 
